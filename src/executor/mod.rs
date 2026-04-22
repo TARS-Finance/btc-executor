@@ -15,8 +15,6 @@ use crate::orders::PendingOrdersProvider;
 
 use self::execution_request::OrderExecutionRequest;
 
-const IDLE_SLEEP_TIME_MS: u64 = 5_000;
-
 pub struct Executor {
     polling_interval_ms: u64,
     chain_identifier: String,
@@ -69,19 +67,19 @@ impl Executor {
                         error = %error,
                         "failed to fetch pending orders",
                     );
-                    sleep_idle().await;
+                    sleep_for_poll_interval(self.polling_interval_ms).await;
                     continue;
                 },
             };
 
             if pending_orders.is_empty() {
-                sleep_idle().await;
+                sleep_for_poll_interval(self.polling_interval_ms).await;
                 continue;
             }
 
             let requests = self.prepare_requests(pending_orders).await;
             if requests.is_empty() {
-                sleep_idle().await;
+                sleep_for_poll_interval(self.polling_interval_ms).await;
                 continue;
             }
 
@@ -212,6 +210,6 @@ impl Executor {
     }
 }
 
-async fn sleep_idle() {
-    tokio::time::sleep(Duration::from_millis(IDLE_SLEEP_TIME_MS)).await;
+async fn sleep_for_poll_interval(polling_interval_ms: u64) {
+    tokio::time::sleep(Duration::from_millis(polling_interval_ms.max(1))).await;
 }

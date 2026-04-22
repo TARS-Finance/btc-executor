@@ -78,6 +78,14 @@ pub(crate) struct WalletDbRow {
     pub(crate) chain_anchor: Option<serde_json::Value>,
 }
 
+pub(crate) struct WalletRowUpdate<'a> {
+    pub(crate) status: &'a str,
+    pub(crate) lineage_id: Option<LineageId>,
+    pub(crate) batch_txid: Option<Txid>,
+    pub(crate) txid_history: &'a [Txid],
+    pub(crate) chain_anchor: Option<ChainAnchor>,
+}
+
 impl TestDatabase {
     pub(crate) async fn new() -> Self {
         let admin_url = postgres_admin_url().await;
@@ -177,11 +185,7 @@ impl TestDatabase {
         &self,
         scope: &str,
         request: &WalletRequest,
-        status: &str,
-        lineage_id: Option<LineageId>,
-        batch_txid: Option<Txid>,
-        txid_history: &[Txid],
-        chain_anchor: Option<ChainAnchor>,
+        update: WalletRowUpdate<'_>,
     ) {
         sqlx::query(
             "INSERT INTO bitcoin_wallet_requests (
@@ -205,12 +209,13 @@ impl TestDatabase {
             WalletRequestKind::Send(_) => "send",
             WalletRequestKind::Spend(_) => "spend",
         })
-        .bind(status)
-        .bind(lineage_id.map(|value| value.to_string()))
-        .bind(batch_txid.map(|value| value.to_string()))
+        .bind(update.status)
+        .bind(update.lineage_id.map(|value| value.to_string()))
+        .bind(update.batch_txid.map(|value| value.to_string()))
         .bind(
             serde_json::to_string(
-                &txid_history
+                &update
+                    .txid_history
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>(),
@@ -218,7 +223,8 @@ impl TestDatabase {
             .expect("serialize txid history"),
         )
         .bind(
-            chain_anchor
+            update
+                .chain_anchor
                 .map(serde_json::to_value)
                 .transpose()
                 .expect("serialize chain anchor"),

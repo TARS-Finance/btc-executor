@@ -22,9 +22,14 @@ pub struct PendingOrdersProvider {
 
 impl PendingOrdersProvider {
     pub fn new(url: reqwest::Url) -> Self {
+        let mut normalized_url = url;
+        if !normalized_url.path().ends_with('/') {
+            normalized_url.set_path(&format!("{}/", normalized_url.path()));
+        }
+
         Self {
             client: reqwest::Client::new(),
-            url,
+            url: normalized_url,
         }
     }
 
@@ -105,5 +110,36 @@ mod tests {
         assert_eq!(orders.len(), 1);
         let order = orders.first().unwrap();
         assert_eq!(order.create_order.create_id, "1");
+    }
+
+    #[tokio::test]
+    async fn preserves_path_prefix_when_base_url_has_no_trailing_slash() {
+        let mock_server = MockServer::start().await;
+
+        let order = orderbook::test_utils::default_matched_order();
+        let response = Response {
+            status: Status::Ok,
+            result: Some(vec![order]),
+            error: None,
+            status_code: StatusCode::OK,
+        };
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"/api/bitcoin$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+            .mount(&mock_server)
+            .await;
+
+        let provider =
+            PendingOrdersProvider::new(reqwest::Url::parse(&format!("{}/api", mock_server.uri())).unwrap());
+        let orders = provider
+            .get_pending_orders(
+                "bitcoin",
+                "ecf8fc65ef8dc4f4ec0f2fc3a9191400c75af2e4d5fdd2c4f196822945812c6d",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(orders.len(), 1);
     }
 }

@@ -1,12 +1,13 @@
 #![cfg(test)]
 
 use std::sync::Arc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, Network, Txid};
 use tars::orderbook::test_utils::default_matched_order;
 use tars::primitives::HTLCAction;
+use tokio::sync::Mutex;
 
 use btc_executor::infrastructure::chain::bitcoin::BitcoinActionExecutor;
 use btc_executor::infrastructure::chain::bitcoin::primitives::{HTLCParams, get_htlc_address};
@@ -142,7 +143,7 @@ fn make_order_and_swap(
 #[ignore = "requires local bitcoind + electrs regtest services on default ports"]
 #[tokio::test]
 async fn redeem_action_executor_executes_on_regtest() {
-    let _guard = regtest_lock().lock().expect("regtest lock");
+    let _guard = regtest_lock().lock().await;
     let env = BitcoinTestEnv::new().await;
     let executor_wallet = env.funded_random_wallet().await;
     let initiator_wallet = env.funded_random_wallet().await;
@@ -197,7 +198,7 @@ async fn redeem_action_executor_executes_on_regtest() {
 #[ignore = "requires local bitcoind + electrs regtest services on default ports"]
 #[tokio::test]
 async fn refund_action_executor_executes_on_regtest() {
-    let _guard = regtest_lock().lock().expect("regtest lock");
+    let _guard = regtest_lock().lock().await;
     let env = BitcoinTestEnv::new().await;
     let executor_wallet = env.funded_random_wallet().await;
     let redeemer_wallet = env.funded_random_wallet().await;
@@ -246,7 +247,7 @@ async fn refund_action_executor_executes_on_regtest() {
 #[ignore = "requires local bitcoind + electrs regtest services on default ports"]
 #[tokio::test]
 async fn instant_refund_action_executor_executes_on_regtest() {
-    let _guard = regtest_lock().lock().expect("regtest lock");
+    let _guard = regtest_lock().lock().await;
     let env = BitcoinTestEnv::new().await;
     let executor_wallet = env.funded_random_wallet().await;
     let initiator_wallet = env.funded_random_wallet().await;
@@ -307,7 +308,7 @@ async fn instant_refund_action_executor_executes_on_regtest() {
 #[ignore = "requires local bitcoind + electrs regtest services on default ports"]
 #[tokio::test]
 async fn instant_refund_action_executor_batches_multiple_requests_on_regtest() {
-    let _guard = regtest_lock().lock().expect("regtest lock");
+    let _guard = regtest_lock().lock().await;
     let env = BitcoinTestEnv::new().await;
     let executor_wallet = env.funded_random_wallet().await;
     let initiator_wallet = env.funded_random_wallet().await;

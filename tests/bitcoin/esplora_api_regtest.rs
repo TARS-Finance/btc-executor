@@ -65,10 +65,10 @@ async fn fetch_confirmed_txs_chain(
 /// of confirmed txs is visible across the full paginated Esplora response.
 async fn wait_for_electrs_indexing(env: &BitcoinTestEnv, address: &str, expected_total: usize) {
     for _ in 0..40 {
-        if let Ok(txids) = fetch_confirmed_txs_chain(env, address).await {
-            if txids.len() >= expected_total {
-                return;
-            }
+        if let Ok(txids) = fetch_confirmed_txs_chain(env, address).await
+            && txids.len() >= expected_total
+        {
+            return;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }

@@ -19,7 +19,8 @@ use rand::{RngExt, SeedableRng};
 use serial_test::serial;
 
 use super::common::{
-    BitcoinTestEnv, TestDatabase, BATCHER_INTERVAL_SECS, DEFAULT_FEE_RATE, NETWORK,
+    BitcoinTestEnv, TestDatabase, WalletRowUpdate, BATCHER_INTERVAL_SECS, DEFAULT_FEE_RATE,
+    NETWORK,
 };
 
 fn assert_request_keys(submitted: &super::common::SubmittedBatchTx, expected: &[&str]) {
@@ -1319,21 +1320,25 @@ async fn bitcoin_batcher_restart_recovers_confirmed_older_sibling_when_stored_he
     db.upsert_wallet_request_row(
         &scope,
         &first_request,
-        "inflight",
-        Some(lineage_id),
-        Some(missing_head_txid),
-        &[first_txid, missing_head_txid],
-        None,
+        WalletRowUpdate {
+            status: "inflight",
+            lineage_id: Some(lineage_id),
+            batch_txid: Some(missing_head_txid),
+            txid_history: &[first_txid, missing_head_txid],
+            chain_anchor: None,
+        },
     )
     .await;
     db.upsert_wallet_request_row(
         &scope,
         &second_request,
-        "inflight",
-        Some(lineage_id),
-        Some(missing_head_txid),
-        &[missing_head_txid],
-        None,
+        WalletRowUpdate {
+            status: "inflight",
+            lineage_id: Some(lineage_id),
+            batch_txid: Some(missing_head_txid),
+            txid_history: &[missing_head_txid],
+            chain_anchor: None,
+        },
     )
     .await;
 
@@ -1449,7 +1454,7 @@ async fn bitcoin_batcher_restart_recovers_confirmed_sibling_creates_real_chain_a
         lineage_id,
         missing_head_txid,
         &first_request,
-        &[second_request.clone()],
+        std::slice::from_ref(&second_request),
         &bitcoin::consensus::encode::serialize_hex(&first_submission.raw_tx),
     )
     .await;
@@ -1826,7 +1831,7 @@ async fn bitcoin_batcher_restart_recovers_two_distinct_real_chain_anchors() {
         first_a_submission.lineage_id,
         missing_head_a,
         &first_a_request,
-        &[second_a_request.clone()],
+        std::slice::from_ref(&second_a_request),
         &bitcoin::consensus::encode::serialize_hex(&first_a_submission.raw_tx),
     )
     .await;
@@ -1836,7 +1841,7 @@ async fn bitcoin_batcher_restart_recovers_two_distinct_real_chain_anchors() {
         first_b_lineage_id,
         missing_head_b,
         &first_b_request,
-        &[second_b_request.clone()],
+        std::slice::from_ref(&second_b_request),
         &bitcoin::consensus::encode::serialize_hex(&first_b_tx),
     )
     .await;
@@ -1991,21 +1996,25 @@ async fn bitcoin_batcher_restart_adopts_mempool_older_sibling_when_stored_head_i
     db.upsert_wallet_request_row(
         &scope,
         &first_request,
-        "inflight",
-        Some(lineage_id),
-        Some(missing_head_txid),
-        &[first_txid, missing_head_txid],
-        None,
+        WalletRowUpdate {
+            status: "inflight",
+            lineage_id: Some(lineage_id),
+            batch_txid: Some(missing_head_txid),
+            txid_history: &[first_txid, missing_head_txid],
+            chain_anchor: None,
+        },
     )
     .await;
     db.upsert_wallet_request_row(
         &scope,
         &second_request,
-        "inflight",
-        Some(lineage_id),
-        Some(missing_head_txid),
-        &[missing_head_txid],
-        None,
+        WalletRowUpdate {
+            status: "inflight",
+            lineage_id: Some(lineage_id),
+            batch_txid: Some(missing_head_txid),
+            txid_history: &[missing_head_txid],
+            chain_anchor: None,
+        },
     )
     .await;
 
@@ -2125,21 +2134,25 @@ async fn bitcoin_batcher_missing_batch_recovers_to_live_batch_and_rbf_merges_del
     db.upsert_wallet_request_row(
         &scope,
         &first_request,
-        "inflight",
-        Some(first_submission.lineage_id),
-        Some(missing_batch_txid),
-        &[first_txid, missing_batch_txid],
-        None,
+        WalletRowUpdate {
+            status: "inflight",
+            lineage_id: Some(first_submission.lineage_id),
+            batch_txid: Some(missing_batch_txid),
+            txid_history: &[first_txid, missing_batch_txid],
+            chain_anchor: None,
+        },
     )
     .await;
     db.upsert_wallet_request_row(
         &scope,
         &second_request,
-        "inflight",
-        Some(first_submission.lineage_id),
-        Some(missing_batch_txid),
-        &[missing_batch_txid],
-        None,
+        WalletRowUpdate {
+            status: "inflight",
+            lineage_id: Some(first_submission.lineage_id),
+            batch_txid: Some(missing_batch_txid),
+            txid_history: &[missing_batch_txid],
+            chain_anchor: None,
+        },
     )
     .await;
     drop(first_harness);
