@@ -1,0 +1,14 @@
+pending_orders_url = "http://127.0.0.1:8080/"
+fiat_provider_url = "http://127.0.0.1:8090/"
+polling_interval_ms = 1500
+
+[bitcoin]
+chain_identifier = "bitcoin"
+network = "regtest"
+electrs_url = "http://127.0.0.1:30000"
+bitcoind_url = "http://127.0.0.1:18443"
+bitcoind_user = "admin1"
+bitcoind_pass = "123"
+database_url = "postgres://postgres:postgres@localhost:5432/postgres"
+batcher_interval_secs = 1
+default_fee_rate = 2.0
