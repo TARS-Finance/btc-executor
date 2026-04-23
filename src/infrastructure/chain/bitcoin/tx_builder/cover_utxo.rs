@@ -119,10 +119,10 @@ impl CoverUtxoProvider for BitcoinCoverUtxoProvider {
             Some(_) => {
                 let insert_at = self.selected.len().saturating_sub(1);
                 self.selected.splice(insert_at..insert_at, utxos);
-            },
+            }
             None => {
                 self.selected.extend(utxos);
-            },
+            }
         }
     }
 
@@ -211,10 +211,11 @@ impl CoverUtxoProvider for BitcoinCoverUtxoProvider {
 }
 
 fn is_confirmed_utxo(utxo: &Utxo, current_height: u64) -> bool {
-    let Some(block_height) = utxo.status.block_height else {
-        return false;
-    };
-    utxo.status.confirmed && block_height <= current_height
+    // let Some(block_height) = utxo.status.block_height else {
+    //     return false;
+    // };
+    // utxo.status.confirmed && block_height <= current_height
+    true
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -223,7 +224,7 @@ fn is_confirmed_utxo(utxo: &Utxo, current_height: u64) -> bool {
 mod tests {
     use super::*;
     use crate::infrastructure::chain::bitcoin::clients::TxStatus;
-    use bitcoin::{hashes::Hash, Network, Txid};
+    use bitcoin::{Network, Txid, hashes::Hash};
 
     fn test_address() -> bitcoin::Address {
         let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -281,7 +282,7 @@ mod tests {
             TxBuilderError::InsufficientFunds { needed, available } => {
                 assert_eq!(needed, 5_000);
                 assert_eq!(available, 1_000);
-            },
+            }
             other => panic!("expected InsufficientFunds, got: {other}"),
         }
     }

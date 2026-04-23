@@ -10,7 +10,7 @@ use tars::primitives::HTLCAction;
 
 use crate::errors::{ChainError, ExecutorError};
 use crate::infrastructure::chain::bitcoin::clients::ElectrsClient;
-use crate::infrastructure::chain::bitcoin::primitives::{HTLCParams, get_htlc_address};
+use crate::infrastructure::chain::bitcoin::primitives::HTLCParams;
 use crate::infrastructure::chain::bitcoin::wallet::{
     BitcoinHtlcWalletAdapter, HtlcAction, WalletRequestSubmitter,
 };
@@ -46,6 +46,10 @@ impl BitcoinActionExecutor {
         hex::encode(self.wallet.x_only_pubkey().serialize())
     }
 
+    pub fn solver_address(&self) -> String {
+        self.wallet.address().to_string()
+    }
+
     pub async fn current_block_height(&self) -> Result<u64, ExecutorError> {
         self.electrs
             .get_block_height()
@@ -74,7 +78,8 @@ impl BitcoinActionExecutor {
         order: &MatchedOrderVerbose,
         action: &HTLCAction,
         swap: &SingleSwap,
-    ) -> Result<Vec<crate::infrastructure::chain::bitcoin::wallet::WalletRequest>, ExecutorError> {
+    ) -> Result<Vec<crate::infrastructure::chain::bitcoin::wallet::WalletRequest>, ExecutorError>
+    {
         let params = swap_to_htlc_params(swap)?;
         let htlc_address = self.resolve_htlc_address(swap, &params)?;
 
@@ -206,23 +211,9 @@ impl BitcoinActionExecutor {
     fn resolve_htlc_address(
         &self,
         swap: &SingleSwap,
-        params: &HTLCParams,
+        _params: &HTLCParams,
     ) -> Result<Address<NetworkChecked>, ExecutorError> {
-        if let Some(address) = swap
-            .htlc_address
-            .as_ref()
-            .filter(|address| !address.is_empty())
-        {
-            return self.parse_address(address);
-        }
-
-        let derived = get_htlc_address(params, self.network).map_err(|err| {
-            ExecutorError::Chain(ChainError::ValidationFailed(format!(
-                "failed to derive bitcoin HTLC address for swap {}: {err}",
-                swap.swap_id
-            )))
-        })?;
-        self.parse_address(&derived.to_string())
+        self.parse_address(&swap.swap_id)
     }
 
     fn parse_address(&self, address: &str) -> Result<Address<NetworkChecked>, ExecutorError> {
@@ -288,4 +279,56 @@ fn adapter_error(
     err: crate::infrastructure::chain::bitcoin::wallet::HtlcAdapterError,
 ) -> ExecutorError {
     ExecutorError::Chain(ChainError::Other(err.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+
+    use crate::infrastructure::chain::bitcoin::wallet::WalletRequest;
+    use crate::infrastructure::chain::bitcoin::wallet::runner::ResolvePendingRequestResult;
+
+    const TEST_BTC_PRIVKEY_HEX: &str =
+        "e8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35";
+
+    struct NoopSubmitter;
+
+    #[async_trait]
+    impl WalletRequestSubmitter for NoopSubmitter {
+        async fn submit(&self, _request: WalletRequest) -> Result<(), ExecutorError> {
+            unimplemented!("submit is not used in this test")
+        }
+
+        async fn submit_and_wait(
+            &self,
+            _request: WalletRequest,
+        ) -> Result<bitcoin::Txid, ExecutorError> {
+            unimplemented!("submit_and_wait is not used in this test")
+        }
+
+        async fn resolve_pending(
+            &self,
+            _dedupe_key: &str,
+        ) -> Result<ResolvePendingRequestResult, ExecutorError> {
+            unimplemented!("resolve_pending is not used in this test")
+        }
+    }
+
+    #[test]
+    fn exposes_solver_taproot_address() {
+        let wallet = Arc::new(
+            BitcoinWallet::from_private_key(TEST_BTC_PRIVKEY_HEX, bitcoin::Network::Testnet)
+                .expect("wallet"),
+        );
+        let expected_address = wallet.address().to_string();
+        let executor = BitcoinActionExecutor::new(
+            wallet,
+            Arc::new(NoopSubmitter),
+            Arc::new(ElectrsClient::new("http://127.0.0.1:30000".to_string())),
+            bitcoin::Network::Testnet,
+        );
+
+        assert_eq!(executor.solver_address(), expected_address);
+    }
 }

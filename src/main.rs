@@ -11,11 +11,12 @@ use btc_executor::infrastructure::chain::bitcoin::wallet::{
     BitcoinWalletRunner, WalletConfig, WalletRequestSubmitter,
 };
 use btc_executor::infrastructure::keys::BitcoinWallet;
-use btc_executor::infrastructure::persistence::PgBitcoinWalletStore;
+use btc_executor::infrastructure::persistence::{
+    PgBitcoinWalletStore, connect_pool, database_schema,
+};
 use btc_executor::orders::PendingOrdersProvider;
 use btc_executor::settings::{BitcoinSettings, Settings};
 use moka::future::Cache;
-use sqlx::postgres::PgPoolOptions;
 use tars::fiat::FiatProvider;
 use tars::orderbook::OrderMapper;
 use tracing_subscriber::EnvFilter;
@@ -49,10 +50,8 @@ async fn run() -> eyre::Result<()> {
     ));
     let fee_estimator: Arc<dyn FeeRateEstimator> =
         Arc::new(ElectrsFeeRateEstimator::new(Arc::clone(&electrs)));
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&settings.bitcoin.database_url)
-        .await?;
+    let schema = database_schema(&settings.bitcoin.chain_identifier);
+    let pool = connect_pool(&settings.bitcoin.database_url, &schema, 5).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let store = Arc::new(PgBitcoinWalletStore::new(pool));

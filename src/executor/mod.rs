@@ -50,6 +50,7 @@ impl Executor {
         tracing::info!(
             chain = %self.chain_identifier,
             solver = %self.signer_id,
+            address = %self.action_executor.solver_address(),
             "starting bitcoin executor",
         );
 
