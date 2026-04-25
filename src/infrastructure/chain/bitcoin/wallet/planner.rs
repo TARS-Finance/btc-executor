@@ -194,21 +194,8 @@ where
         });
     }
 
-    let mut live_lineages = runtime.live_lineages.values().collect::<Vec<_>>();
-    live_lineages.sort_by_key(|lineage| lineage.lineage_id.to_string());
-    for lineage in live_lineages {
-        // Existing live lineages are considered in deterministic lineage-id
-        // order so planning stays stable across restarts.
-        if let Some(cost) = evaluator.rbf_cost(lineage, requests) {
-            choices.push(CostedAction {
-                action: PlannedBatchAction::Rbf {
-                    lineage_id: lineage.lineage_id,
-                    requests: requests.to_vec(),
-                },
-                cost,
-            });
-        }
-    }
+    // RBF is intentionally disabled: free requests always take the Fresh path
+    // so each batch goes out as a standalone transaction.
 
     cheapest_choice(choices)
 }
@@ -433,29 +420,6 @@ mod tests {
         }
     }
 
-    fn live_lineage_without_special_prevout(lineage_id: LineageId, head_seed: u8) -> LiveLineage {
-        let head_txid = Txid::from_byte_array([head_seed; 32]);
-        LiveLineage {
-            lineage_id,
-            head_txid,
-            all_txids: vec![head_txid],
-            requests: vec![LiveLineageRequest {
-                request: WalletRequest::send("live-1", regtest_address(head_seed), 7_000).unwrap(),
-                txid_history: vec![head_txid],
-                created_at: Timestamp::default(),
-            }],
-            cover_utxos: vec![CoverUtxo {
-                outpoint: OutPoint {
-                    txid: Txid::from_byte_array([head_seed + 2; 32]),
-                    vout: 1,
-                },
-                value: 19_000,
-                script_pubkey: ScriptBuf::new(),
-            }],
-            chain_anchor: None,
-        }
-    }
-
     fn runtime_state(
         free: Vec<PendingWalletRequest>,
         anchored: Vec<PendingWalletRequest>,
@@ -561,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn free_pending_chooses_cheapest_feasible_rbf_over_fresh() {
+    fn free_pending_always_uses_fresh_even_when_rbf_would_be_cheaper() {
         let lineage_id = LineageId::new();
         let runtime = runtime_state(
             vec![send_request("free-1", 1, 12_000)],
@@ -576,8 +540,7 @@ mod tests {
 
         assert_eq!(
             actions,
-            vec![PlannedBatchAction::Rbf {
-                lineage_id,
+            vec![PlannedBatchAction::Fresh {
                 requests: vec![send_request("free-1", 1, 12_000)],
             }]
         );
@@ -611,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn free_pending_can_rbf_when_fresh_is_blocked_by_concurrency_cap() {
+    fn free_pending_yields_no_action_when_fresh_is_blocked_by_concurrency_cap() {
         let lineage_id = LineageId::new();
         let runtime = runtime_state(
             vec![send_request("free-1", 1, 12_000)],
@@ -626,36 +589,9 @@ mod tests {
 
         let actions = plan_wallet_batches(&runtime, &config, &evaluator);
 
-        assert_eq!(
-            actions,
-            vec![PlannedBatchAction::Rbf {
-                lineage_id,
-                requests: vec![send_request("free-1", 1, 12_000)],
-            }]
-        );
-    }
-
-    #[test]
-    fn regular_lineages_do_not_need_a_special_prevout_to_remain_rbf_candidates() {
-        let lineage_id = LineageId::new();
-        let runtime = runtime_state(
-            vec![send_request("free-1", 1, 12_000)],
-            Vec::new(),
-            vec![live_lineage_without_special_prevout(lineage_id, 9)],
-        );
-        let mut config = WalletConfig::default();
-        config.max_concurrent_lineages = 1;
-        let evaluator = FakePlannerEvaluator::default().with_rbf(lineage_id, &["free-1"], 5);
-
-        let actions = plan_wallet_batches(&runtime, &config, &evaluator);
-
-        assert_eq!(
-            actions,
-            vec![PlannedBatchAction::Rbf {
-                lineage_id,
-                requests: vec![send_request("free-1", 1, 12_000)],
-            }]
-        );
+        // RBF is disabled, and the concurrency cap blocks Fresh — so the planner
+        // emits nothing for free requests this tick.
+        assert!(actions.is_empty());
     }
 
     #[test]

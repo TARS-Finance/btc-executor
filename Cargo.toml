@@ -28,7 +28,7 @@ sqlx = { version = "0.8", features = [
     "json",
 ] }
 thiserror = "1.0.63"
-tars = { git = "https://github.com/TARS-Finance/Tars-rs", rev = "daf9faebd86a152c30506eb3484814201af72312", features = [
+tars = { git = "https://github.com/TARS-Finance/Tars-rs", rev = "2baeff0f7c5cb83a06e5fbb258414c374707dbf6", features = [
     "api",
     "bitcoin",
     "fiat",

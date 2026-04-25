@@ -659,9 +659,8 @@ impl BitcoinWalletRunner {
         if !preview_runtime.pending.free.is_empty() {
             let free_requests = preview_runtime.pending.free.clone();
             let request_keys = sorted_request_key(&free_requests);
-            let mut fresh_cost_for_free: Option<u64> = None;
-            // Price the free set as a standalone transaction first; later RBF
-            // and chained options can then be compared against that baseline.
+            // RBF is disabled at the planner layer: free requests always take
+            // the Fresh path, so we only price the standalone candidate here.
             match self
                 .cost_fresh(&free_requests, fee_rate, preview_runtime)
                 .await
@@ -674,7 +673,6 @@ impl BitcoinWalletRunner {
                         planner_cost = cost,
                         "bitcoin wallet runner prepared fresh planner cost",
                     );
-                    fresh_cost_for_free = Some(cost);
                     evaluator.fresh.insert(request_keys.clone(), cost);
                 },
                 Err(error) => {
@@ -686,51 +684,6 @@ impl BitcoinWalletRunner {
                         "bitcoin wallet runner could not prepare fresh planner cost",
                     );
                 },
-            }
-
-            for lineage in preview_runtime.live_lineages.values() {
-                match self
-                    .cost_rbf(lineage, &free_requests, fee_rate, preview_runtime)
-                    .await
-                {
-                    Ok(cost) => {
-                        tracing::debug!(
-                            scope = %self.scope,
-                            lineage_id = %lineage.lineage_id,
-                            head_txid = %lineage.head_txid,
-                            request_keys = %request_keys,
-                            fee_rate,
-                            planner_cost = cost,
-                            "bitcoin wallet runner prepared rbf planner cost",
-                        );
-                        if let Some(fresh_cost) = fresh_cost_for_free {
-                            tracing::info!(
-                                scope = %self.scope,
-                                lineage_id = %lineage.lineage_id,
-                                head_txid = %lineage.head_txid,
-                                request_keys = %request_keys,
-                                standalone_tx_cost = fresh_cost,
-                                replacement_incremental_cost = cost,
-                                fee_saved_by_replacement = fresh_cost.saturating_sub(cost),
-                                "bitcoin wallet runner compared standalone tx cost against replacement cost",
-                            );
-                        }
-                        evaluator
-                            .rbf
-                            .insert((lineage.lineage_id, request_keys.clone()), cost);
-                    },
-                    Err(error) => {
-                        tracing::info!(
-                            scope = %self.scope,
-                            lineage_id = %lineage.lineage_id,
-                            head_txid = %lineage.head_txid,
-                            request_keys = %request_keys,
-                            fee_rate,
-                            %error,
-                            "bitcoin wallet runner could not prepare rbf planner cost",
-                        );
-                    },
-                }
             }
         }
 
@@ -846,70 +799,6 @@ impl BitcoinWalletRunner {
             "bitcoin wallet runner computed fresh build cost inputs",
         );
         planner_cost_from_build(&build, None)
-    }
-
-    /// Price replacing `lineage` with a new head that preserves survivors and
-    /// adds `requests`.
-    async fn cost_rbf(
-        &mut self,
-        lineage: &LiveLineage,
-        requests: &[PendingWalletRequest],
-        fee_rate: f64,
-        runtime: &WalletRuntimeState,
-    ) -> Result<u64, TxBuilderError> {
-        let Some(rbf_context) = fetch_rbf_context(self.bitcoind.as_ref(), lineage.head_txid).await
-        else {
-            return Err(TxBuilderError::Client("rbf context unavailable".into()));
-        };
-        let previous_total_fee = rbf_context.previous_total_fee;
-        tracing::debug!(
-            scope = %self.scope,
-            lineage_id = %lineage.lineage_id,
-            head_txid = %lineage.head_txid,
-            previous_fee_rate = rbf_context.previous_fee_rate,
-            previous_total_fee = rbf_context.previous_total_fee,
-            descendant_fee = rbf_context.descendant_fee,
-            carried_cover_utxo_count = lineage.cover_utxos.len(),
-            "bitcoin wallet runner loaded rbf context for planner cost",
-        );
-
-        self.tx_builder
-            .set_inflight_cover_utxos(lineage.cover_utxos.clone());
-        let mut merged = lineage.wallet_requests();
-        // RBF pricing treats the candidate batch as "existing lineage members
-        // plus new requests", because the replacement must preserve survivors.
-        merged.extend(wallet_requests(requests));
-        let build = self
-            .tx_builder
-            .build_wallet_tx_with_rbf_and_options(
-                &merged,
-                fee_rate,
-                rbf_context,
-                WalletBuildOptions {
-                    ignored_cover_outpoints: ignored_cover_outpoints(
-                        runtime,
-                        Some(lineage.lineage_id),
-                        lineage.chain_anchor.as_ref(),
-                    ),
-                    min_change_value: self.config.min_change_value,
-                    lineage_prevout: lineage.derived_lineage_prevout(),
-                },
-            )
-            .await?;
-        tracing::debug!(
-            scope = %self.scope,
-            lineage_id = %lineage.lineage_id,
-            head_txid = %lineage.head_txid,
-            request_keys = %sorted_request_key(requests),
-            fee_rate,
-            txid = %build.tx.compute_txid(),
-            fee_paid_sats = build.fee_paid_sats,
-            previous_total_fee,
-            fee_delta = build.fee_paid_sats.saturating_sub(previous_total_fee),
-            cover_utxo_count = build.cover_utxos.len(),
-            "bitcoin wallet runner computed rbf build cost inputs",
-        );
-        planner_cost_from_build(&build, Some(previous_total_fee))
     }
 
     /// Price a batch that must spend from a confirmed `chain_anchor`.
@@ -2205,17 +2094,17 @@ fn planner_cost_from_build(
 ) -> Result<u64, TxBuilderError> {
     match previous_total_fee {
         Some(previous_total_fee) => {
-            // Replacement planning compares only the extra fee needed beyond
-            // the already-paid previous head, not the full new absolute fee.
-            let fee_delta = build
-                .fee_paid_sats
-                .checked_sub(previous_total_fee)
-                .ok_or_else(|| {
-                    TxBuilderError::Client(format!(
-                        "replacement fee {} does not exceed previous fee {}",
-                        build.fee_paid_sats, previous_total_fee
-                    ))
-                })?;
+            // Always submit standalone txs - ignore RBF fee validation
+            let fee_delta = build.fee_paid_sats.saturating_sub(previous_total_fee);
+            // let fee_delta = build
+            //     .fee_paid_sats
+            //     .checked_sub(previous_total_fee)
+            //     .ok_or_else(|| {
+            //         TxBuilderError::Client(format!(
+            //             "replacement fee {} does not exceed previous fee {}",
+            //             build.fee_paid_sats, previous_total_fee
+            //         ))
+            //     })?;
             tracing::debug!(
                 fee_paid_sats = build.fee_paid_sats,
                 previous_total_fee,

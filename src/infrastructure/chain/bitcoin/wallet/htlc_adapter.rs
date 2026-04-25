@@ -283,19 +283,55 @@ impl BitcoinHtlcWalletAdapter {
                 .await
                 .map_err(map_client_error)?;
 
-            let mut matches = utxos
-                .into_iter()
-                .filter(|utxo| utxo.value == expected_value);
-            let utxo_opt = matches.next();
-
-            if utxo_opt.is_some() && matches.next().is_some() {
-                return Err(HtlcAdapterError::AmbiguousHtlcUtxo {
-                    address: htlc_address.clone(),
-                    expected_value,
-                });
+            tracing::debug!(
+                address = %htlc_address,
+                expected_value,
+                count = utxos.len(),
+                "resolve_htlc_utxo: electrs returned utxos",
+            );
+            for u in &utxos {
+                tracing::debug!(
+                    address = %htlc_address,
+                    txid = %u.txid,
+                    vout = u.vout,
+                    value = u.value,
+                    confirmed = u.status.confirmed,
+                    "resolve_htlc_utxo: candidate utxo",
+                );
             }
 
-            if let Some(utxo) = utxo_opt {
+            let value_matches: Vec<_> = utxos
+                .iter()
+                .filter(|u| u.value == expected_value)
+                .cloned()
+                .collect();
+
+            let chosen = match value_matches.len() {
+                1 => Some(value_matches.into_iter().next().unwrap()),
+                n if n > 1 => {
+                    return Err(HtlcAdapterError::AmbiguousHtlcUtxo {
+                        address: htlc_address.clone(),
+                        expected_value,
+                    });
+                },
+                _ => {
+                    if utxos.len() == 1 {
+                        let u = utxos[0].clone();
+                        tracing::warn!(
+                            address = %htlc_address,
+                            expected_value,
+                            actual_value = u.value,
+                            confirmed = u.status.confirmed,
+                            "resolve_htlc_utxo: value mismatch, using sole utxo at address (incl. unconfirmed)",
+                        );
+                        Some(u)
+                    } else {
+                        None
+                    }
+                },
+            };
+
+            if let Some(utxo) = chosen {
                 let txid = bitcoin::Txid::from_str(&utxo.txid)
                     .map_err(|err| HtlcAdapterError::InvalidTxid(err.to_string()))?;
                 return Ok((
