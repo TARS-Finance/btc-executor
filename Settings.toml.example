@@ -1,0 +1,16 @@
+pending_orders_url = "http://127.0.0.1:4596/"
+fiat_provider_url = "http://127.0.0.1:6969/"
+polling_interval_ms = 1500
+
+[bitcoin]
+chain_identifier = "bitcoin_testnet"
+network = "bitcoin_testnet"
+electrs_url = "https://mempool.space/testnet4/api"
+# WARNING: replace these with a real Bitcoin Core JSON-RPC endpoint before
+# enabling BTC flows locally.
+bitcoind_url = "__BITCOIN_RPC_URL__"
+bitcoind_user = "__BITCOIN_RPC_USER__"
+bitcoind_pass = "__BITCOIN_RPC_PASSWORD__"
+database_url = "__DATABASE_URL__"
+batcher_interval_secs = 1
+default_fee_rate = 2.0
